@@ -29,6 +29,7 @@ import {
 import { toInternalDebugError } from "../../shared/errors/internal-debug-error.ts";
 import type { ProtocolFrame } from "../../shared/stream/types.ts";
 import { withAccountFallback } from "../../../shared/account-pool/fallback.ts";
+import type { ErrorLogContext } from "../../../shared/account-pool/fallback.ts";
 import {
   type PerformanceTelemetryContext,
   runtimeLocationFromRequest,
@@ -66,6 +67,7 @@ export const serveChatCompletions = async (
     const payload = await c.req.json<ChatCompletionsPayload>();
     includeUsageChunk = payload.stream_options?.include_usage === true;
     const apiKeyId = c.get("apiKeyId") as string | undefined;
+    const preferredAccountId = c.get("githubAccountId") as number | undefined;
     const wantsStream = payload.stream === true;
     downstreamAbortController = wantsStream ? new AbortController() : undefined;
     const runtimeLocation = runtimeLocationFromRequest(c.req.raw);
@@ -93,6 +95,8 @@ export const serveChatCompletions = async (
         const intent = chatModelResolutionIntent(ctx.payload);
         const modelId = await resolveModelForRequest(ctx.payload.model, intent);
         performanceFor(modelId, "chat-completions");
+
+        const errorLogContext: ErrorLogContext = { endpoint: "chat-completions", apiKeyId };
 
         return await withAccountFallback(modelId, async ({ account }) => {
           const attemptPayload = structuredClone(ctx.payload);
@@ -180,7 +184,7 @@ export const serveChatCompletions = async (
             attemptPayload.model,
             performance,
           );
-        });
+        }, preferredAccountId, errorLogContext);
       },
     );
 

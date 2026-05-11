@@ -1150,7 +1150,7 @@ Deno.test("DashboardPage merges Upstream into leftmost Settings tab and places M
 
   assertStringIncludes(
     html,
-    "const TABS = isAdmin ? ['settings', 'models', 'keys', 'usage', 'performance'] : ['models', 'keys', 'usage', 'performance'];",
+    "const TABS = isAdmin ? ['settings', 'models', 'keys', 'usage', 'performance', 'errors'] : ['models', 'keys', 'usage', 'performance'];",
   );
   assertStringIncludes(html, "const defaultTab = isAdmin ? 'settings' : 'models';");
   assertFalse(html.includes("switchTab('upstream')"));

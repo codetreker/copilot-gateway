@@ -4,6 +4,8 @@ import type {
   ApiKey,
   ApiKeyRepo,
   CacheRepo,
+  ErrorLogEntry,
+  ErrorLogRepo,
   GitHubAccount,
   GitHubRepo,
   PerformanceDimensions,
@@ -85,6 +87,21 @@ class DenoKvApiKeyRepo implements ApiKeyRepo {
     }
     for await (const entry of this.kv.list({ prefix: ["api_keys_by_key"] })) {
       await this.kv.delete(entry.key);
+    }
+  }
+
+  async updateGithubAccountId(id: string, githubAccountId: number): Promise<boolean> {
+    const existing = await this.kv.get<ApiKey>(["api_keys", id]);
+    if (!existing.value) return false;
+    await this.kv.set(["api_keys", id], { ...existing.value, githubAccountId });
+    return true;
+  }
+
+  async clearGithubAccountId(githubAccountId: number): Promise<void> {
+    for await (const entry of this.kv.list<ApiKey>({ prefix: ["api_keys"] })) {
+      if (entry.value.githubAccountId === githubAccountId) {
+        await this.kv.set(entry.key, { ...entry.value, githubAccountId: undefined });
+      }
     }
   }
 }
@@ -765,6 +782,32 @@ class DenoKvSearchConfigRepo implements SearchConfigRepo {
   }
 }
 
+class DenoKvErrorLogRepo implements ErrorLogRepo {
+  constructor(private kv: Deno.Kv) {}
+
+  async record(entry: ErrorLogEntry): Promise<void> {
+    await this.kv.set(["error_log", entry.timestamp, entry.id], entry);
+  }
+
+  async query(opts: { start: string; end: string; limit?: number }): Promise<ErrorLogEntry[]> {
+    const limit = opts.limit ?? 200;
+    const entries: ErrorLogEntry[] = [];
+    for await (const entry of this.kv.list<ErrorLogEntry>({ prefix: ["error_log"] })) {
+      const ts = entry.key[1] as string;
+      if (ts >= opts.start && ts < opts.end) entries.push(entry.value);
+    }
+    return entries
+      .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
+      .slice(0, limit);
+  }
+
+  async deleteAll(): Promise<void> {
+    for await (const entry of this.kv.list({ prefix: ["error_log"] })) {
+      await this.kv.delete(entry.key);
+    }
+  }
+}
+
 export class DenoKvRepo implements Repo {
   apiKeys: ApiKeyRepo;
   github: GitHubRepo;
@@ -774,6 +817,7 @@ export class DenoKvRepo implements Repo {
   cache: CacheRepo;
   accountModelBackoffs: AccountModelBackoffRepo;
   searchConfig: SearchConfigRepo;
+  errorLog: ErrorLogRepo;
 
   constructor(kv: Deno.Kv) {
     this.apiKeys = new DenoKvApiKeyRepo(kv);
@@ -784,5 +828,6 @@ export class DenoKvRepo implements Repo {
     this.cache = new DenoKvCacheRepo(kv);
     this.accountModelBackoffs = new DenoKvAccountModelBackoffRepo(kv);
     this.searchConfig = new DenoKvSearchConfigRepo(kv);
+    this.errorLog = new DenoKvErrorLogRepo(kv);
   }
 }

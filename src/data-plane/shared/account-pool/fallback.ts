@@ -20,6 +20,11 @@ export interface AccountPoolAttemptContext {
   account: GitHubAccount;
 }
 
+export interface ErrorLogContext {
+  endpoint: string;
+  apiKeyId?: string;
+}
+
 type LastFailure<T> =
   | { type: "result"; result: T }
   | { type: "error"; error: unknown };
@@ -112,9 +117,33 @@ const availableAccountsForModel = async (
     .map((check) => check.account);
 };
 
+const recordError = (
+  errorLogContext: ErrorLogContext | undefined,
+  model: string,
+  status: number,
+  account: GitHubAccount,
+  errorBody?: string,
+): void => {
+  if (!errorLogContext) return;
+  const repo = getRepo();
+  if (!repo.errorLog) return;
+  repo.errorLog.record({
+    id: crypto.randomUUID(),
+    timestamp: new Date().toISOString(),
+    endpoint: errorLogContext.endpoint,
+    model,
+    status,
+    accountLogin: account.user.login,
+    apiKeyId: errorLogContext.apiKeyId,
+    errorBody,
+  }).catch(() => {});
+};
+
 export async function withAccountFallback<T>(
   model: string,
   run: (ctx: AccountPoolAttemptContext) => Promise<T>,
+  preferredAccountId?: number,
+  errorLogContext?: ErrorLogContext,
 ): Promise<T> {
   const accounts = await getRepo().github.listAccounts();
   if (accounts.length === 0) {
@@ -128,6 +157,14 @@ export async function withAccountFallback<T>(
     attempts = eligible;
   }
 
+  if (preferredAccountId !== undefined) {
+    const idx = attempts.findIndex((a) => a.user.id === preferredAccountId);
+    if (idx > 0) {
+      const [preferred] = attempts.splice(idx, 1);
+      attempts.unshift(preferred);
+    }
+  }
+
   let lastFailure: LastFailure<T> | null = null;
 
   for (const account of attempts) {
@@ -137,12 +174,15 @@ export async function withAccountFallback<T>(
       if (!status) return result;
 
       await markModelUnavailable(account, model, status);
+      recordError(errorLogContext, model, status, account);
       lastFailure = { type: "result", result };
     } catch (error) {
       const status = switchableStatusFromError(error);
       if (!status) throw error;
 
       await markModelUnavailable(account, model, status);
+      const body = error instanceof Error ? error.message : String(error);
+      recordError(errorLogContext, model, status, account, body);
       lastFailure = { type: "error", error };
     }
   }

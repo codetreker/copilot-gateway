@@ -3,6 +3,7 @@
 import type { Context } from "hono";
 import { copilotFetch, isCopilotTokenFetchError } from "../../lib/copilot.ts";
 import { withAccountFallback } from "../shared/account-pool/fallback.ts";
+import type { ErrorLogContext } from "../shared/account-pool/fallback.ts";
 import { withUsageResponseMetadata } from "../../middleware/usage-response-metadata.ts";
 import {
   apiErrorResponse,
@@ -56,6 +57,9 @@ const prepareEmbeddingsRequest = (body: string) => {
 export const embeddings = async (c: Context) => {
   try {
     const request = prepareEmbeddingsRequest(await c.req.text());
+    const apiKeyId = c.get("apiKeyId") as string | undefined;
+    const preferredAccountId = c.get("githubAccountId") as number | undefined;
+    const errorLogContext: ErrorLogContext = { endpoint: "embeddings", apiKeyId };
 
     const resp = await withAccountFallback(
       request.model,
@@ -66,6 +70,8 @@ export const embeddings = async (c: Context) => {
           account.token,
           account.accountType,
         ),
+      preferredAccountId,
+      errorLogContext,
     );
 
     return withUsageResponseMetadata(c, proxyJsonResponse(resp), {

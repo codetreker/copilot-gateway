@@ -224,6 +224,15 @@ export function renderDashboardHeader() {
           >
             Performance
           </button>
+          <template x-if="isAdmin">
+            <button
+              @click="switchTab('errors')"
+              class="shrink-0 px-2 py-2 rounded-md text-xs font-medium transition-all sm:px-4 sm:text-sm"
+              :class="tab === 'errors' ? 'bg-surface-600 text-white' : 'text-gray-500 hover:text-gray-300'"
+            >
+              Errors
+            </button>
+          </template>
         </nav>
 
         <button @click="logout()" class="btn-ghost text-xs ml-auto shrink-0">
@@ -304,6 +313,12 @@ export function renderKeysTab() {
                     Last Used
                   </th>
                   <th
+                    x-show="isAdmin && githubAccounts.length > 1"
+                    class="text-left py-2 pr-4 text-xs font-medium text-gray-500 uppercase tracking-widest"
+                  >
+                    Backend
+                  </th>
+                  <th
                     x-show="isAdmin"
                     class="text-right py-2 pr-2 text-xs font-medium text-gray-500 uppercase tracking-widest"
                   >
@@ -353,6 +368,18 @@ export function renderKeysTab() {
                       ></span>
                       <span x-show="!k.last_used_at" class="text-gray-600 text-xs"
                       >Never</span>
+                    </td>
+                    <td x-show="isAdmin && githubAccounts.length > 1" class="py-3 pr-4" @click.stop>
+                      <select
+                        class="text-xs bg-surface-800 border border-white/10 rounded px-2 py-1 text-gray-300"
+                        :value="k.github_account_id || ''"
+                        @change="updateKeyBackend(k.id, $event.target.value ? Number($event.target.value) : null)"
+                      >
+                        <option value="">Auto</option>
+                        <template x-for="acct in githubAccounts" :key="acct.user.id">
+                          <option :value="acct.user.id" x-text="acct.user.login" :selected="k.github_account_id === acct.user.id"></option>
+                        </template>
+                      </select>
                     </td>
                     <td class="py-3 pr-2 text-right">
                       <div class="flex items-center justify-end gap-1">
@@ -2235,3 +2262,101 @@ export function renderModelsTab() {
       </div>
     `;
   }
+
+export function renderErrorsTab() {
+  return html`
+    <div x-show="tab === 'errors' && isAdmin">
+      <div class="glass-card p-5 sm:p-6 mb-6 animate-in">
+        <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6">
+          <span class="text-xs font-medium text-gray-500 uppercase tracking-widest">Error Log</span>
+          <div class="flex items-center gap-2">
+            <select
+              class="text-xs bg-surface-800 border border-white/10 rounded px-2 py-1 text-gray-300"
+              x-model="errorLogRange"
+              @change="loadErrorLog()"
+            >
+              <option value="today">Today</option>
+              <option value="7d">Last 7 Days</option>
+              <option value="30d">Last 30 Days</option>
+            </select>
+            <button
+              @click="loadErrorLog()"
+              class="btn-primary !text-xs !py-1.5 !px-3 !rounded-lg"
+              :disabled="errorLogLoading"
+            >
+              <span x-show="!errorLogLoading">Refresh</span>
+              <span x-show="errorLogLoading" class="flex items-center gap-1.5">
+                ${spinner("h-3 w-3")} Loading…
+              </span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Summary cards -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+          <div class="bg-surface-800 rounded-lg p-3 text-center">
+            <span class="block text-xs text-gray-500 mb-1">Total Errors</span>
+            <span class="block text-lg font-bold font-mono text-white" x-text="errorLogData.length"></span>
+          </div>
+          <template x-for="[status, count] in Object.entries(errorLogStatusCounts).sort()" :key="status">
+            <div class="bg-surface-800 rounded-lg p-3 text-center">
+              <span class="block text-xs text-gray-500 mb-1" x-text="'HTTP ' + status"></span>
+              <span class="block text-lg font-bold font-mono text-yellow-400" x-text="count"></span>
+            </div>
+          </template>
+        </div>
+
+        <!-- Error table -->
+        <div class="overflow-x-auto">
+          <template x-if="errorLogData.length === 0 && !errorLogLoading">
+            <p class="text-sm text-gray-500 py-4 text-center">No errors in this time range.</p>
+          </template>
+          <template x-if="errorLogLoading && errorLogData.length === 0">
+            <div class="space-y-3 py-2">
+              <div class="h-10 bg-surface-600 rounded animate-pulse"></div>
+              <div class="h-10 bg-surface-600 rounded animate-pulse"></div>
+            </div>
+          </template>
+          <template x-if="errorLogData.length > 0">
+            <table class="w-full min-w-[700px] text-sm">
+              <thead>
+                <tr class="border-b border-white/5">
+                  <th class="text-left py-2 px-3 text-xs font-medium text-gray-500 uppercase tracking-widest">Time</th>
+                  <th class="text-left py-2 px-3 text-xs font-medium text-gray-500 uppercase tracking-widest">Endpoint</th>
+                  <th class="text-left py-2 px-3 text-xs font-medium text-gray-500 uppercase tracking-widest">Model</th>
+                  <th class="text-left py-2 px-3 text-xs font-medium text-gray-500 uppercase tracking-widest">Status</th>
+                  <th class="text-left py-2 px-3 text-xs font-medium text-gray-500 uppercase tracking-widest">Account</th>
+                  <th class="text-left py-2 px-3 text-xs font-medium text-gray-500 uppercase tracking-widest">Error</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="e in errorLogData" :key="e.id">
+                  <tr class="border-b border-white/[0.03] hover:bg-white/[0.02]">
+                    <td class="py-2 px-3">
+                      <span class="text-gray-400 text-xs" :title="e.timestamp" x-text="timeAgo(e.timestamp)"></span>
+                    </td>
+                    <td class="py-2 px-3">
+                      <code class="text-xs font-mono text-gray-300" x-text="e.endpoint"></code>
+                    </td>
+                    <td class="py-2 px-3">
+                      <code class="text-xs font-mono text-gray-300" x-text="e.model"></code>
+                    </td>
+                    <td class="py-2 px-3">
+                      <span class="text-xs font-mono font-bold text-yellow-400" x-text="e.status"></span>
+                    </td>
+                    <td class="py-2 px-3">
+                      <span class="text-xs text-gray-400" x-text="e.accountLogin"></span>
+                    </td>
+                    <td class="py-2 px-3">
+                      <span class="text-xs text-gray-500 truncate max-w-[200px] block" x-text="e.errorBody || '—'" :title="e.errorBody || ''"></span>
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </template>
+        </div>
+      </div>
+    </div>
+  `;
+}

@@ -15,7 +15,7 @@ export function dashboardAssets() {
     <script>
     function dashboardApp() {
     const isAdmin = localStorage.getItem('isAdmin') === '1';
-    const TABS = isAdmin ? ['settings', 'models', 'keys', 'usage', 'performance'] : ['models', 'keys', 'usage', 'performance'];
+    const TABS = isAdmin ? ['settings', 'models', 'keys', 'usage', 'performance', 'errors'] : ['models', 'keys', 'usage', 'performance'];
     const defaultTab = isAdmin ? 'settings' : 'models';
     const initTab = TABS.includes(location.hash.slice(1)) ? location.hash.slice(1) : defaultTab;
 
@@ -377,6 +377,9 @@ export function dashboardAssets() {
                   searchConfigTesting: false,
                   searchConfigTestResult: null,
                   _chatAbort: null,
+                  errorLogData: [],
+                  errorLogLoading: false,
+                  errorLogRange: 'today',
 
                   get baseUrl() { return location.origin; },
 
@@ -533,6 +536,7 @@ export function dashboardAssets() {
                           this.loadSearchConfig();
                         } else if (this.tab === 'keys') {
                           this.loadKeys();
+                          if (this.isAdmin && !this.meLoaded) this.loadMe();
                         } else if (this.tab === 'usage') {
                           this.loadUsageTabData(modelsReady);
                         } else if (this.tab === 'performance') {
@@ -577,8 +581,11 @@ export function dashboardAssets() {
                           await this.loadPerformanceTabData();
                         } else if (t === 'keys') {
                           await this.loadKeys();
+                          if (this.isAdmin && !this.meLoaded) await this.loadMe();
                         } else if (t === 'models') {
                           if (this.allModels.length === 0) await this.loadAllModels();
+                        } else if (t === 'errors') {
+                          await this.loadErrorLog();
                         }
                       },
 
@@ -1041,6 +1048,60 @@ export function dashboardAssets() {
                           } catch (e) {
                             console.error('renameKey:', e);
                           }
+                        },
+
+                        async updateKeyBackend(id, githubAccountId) {
+                          try {
+                            const resp = await fetch('/api/keys/' + id, {
+                              method: 'PUT',
+                              headers: { ...this.authHeaders(), 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ github_account_id: githubAccountId || null }),
+                            });
+                            if (resp.status === 401) { this.logout(); return; }
+                            if (resp.ok) {
+                              await this.loadKeys();
+                            } else {
+                              alert((await resp.json()).error || 'Failed to update key backend');
+                            }
+                          } catch (e) {
+                            console.error('updateKeyBackend:', e);
+                          }
+                        },
+
+                        errorLogTimeRange() {
+                          const now = new Date();
+                          if (this.errorLogRange === 'today') {
+                            const start = new Date(now); start.setHours(0,0,0,0);
+                            return { start: start.toISOString(), end: now.toISOString() };
+                          }
+                          if (this.errorLogRange === '7d') {
+                            const start = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+                            return { start: start.toISOString(), end: now.toISOString() };
+                          }
+                          const start = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+                          return { start: start.toISOString(), end: now.toISOString() };
+                        },
+
+                        async loadErrorLog() {
+                          this.errorLogLoading = true;
+                          try {
+                            const range = this.errorLogTimeRange();
+                            const resp = await fetch('/api/error-log?start=' + encodeURIComponent(range.start) + '&end=' + encodeURIComponent(range.end) + '&limit=500', { headers: this.authHeaders() });
+                            if (resp.status === 401) { this.logout(); return; }
+                            if (resp.ok) this.errorLogData = await resp.json();
+                          } catch (e) {
+                            console.error('loadErrorLog:', e);
+                          } finally {
+                            this.errorLogLoading = false;
+                          }
+                        },
+
+                        get errorLogStatusCounts() {
+                          const counts = {};
+                          for (const e of this.errorLogData) {
+                            counts[e.status] = (counts[e.status] || 0) + 1;
+                          }
+                          return counts;
                         },
 
                         async copySnippet(text, tag) {

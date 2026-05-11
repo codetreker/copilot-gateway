@@ -18,6 +18,7 @@ import { geminiModelResolutionIntent, planGeminiRequest } from "./plan.ts";
 import { getModelCapabilities } from "../../shared/models/get-model-capabilities.ts";
 import { resolveModelForRequest } from "../../shared/models/resolve-model.ts";
 import { withAccountFallback } from "../../../shared/account-pool/fallback.ts";
+import type { ErrorLogContext } from "../../../shared/account-pool/fallback.ts";
 import { emitToMessages } from "../../targets/messages/emit.ts";
 import { emitToResponses } from "../../targets/responses/emit.ts";
 import { emitToChatCompletions } from "../../targets/chat-completions/emit.ts";
@@ -64,6 +65,7 @@ export const serveGemini = async (
   try {
     const payload = await c.req.json<GeminiGenerateContentRequest>();
     const apiKeyId = c.get("apiKeyId") as string | undefined;
+    const preferredAccountId = c.get("githubAccountId") as number | undefined;
     downstreamAbortController = wantsStream ? new AbortController() : undefined;
     const runtimeLocation = runtimeLocationFromRequest(c.req.raw);
     const scheduleBackground = backgroundSchedulerFromContext(c);
@@ -92,6 +94,8 @@ export const serveGemini = async (
           geminiModelResolutionIntent(ctx.payload),
         );
         performanceFor(modelId, "gemini");
+
+        const errorLogContext: ErrorLogContext = { endpoint: "gemini", apiKeyId };
 
         return await withAccountFallback(modelId, async ({ account }) => {
           const attemptPayload = structuredClone(ctx.payload);
@@ -197,7 +201,7 @@ export const serveGemini = async (
             targetPayload.model,
             performance,
           );
-        });
+        }, preferredAccountId, errorLogContext);
       },
     );
 

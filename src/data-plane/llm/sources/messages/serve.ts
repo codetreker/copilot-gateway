@@ -26,6 +26,7 @@ import {
 import { toInternalDebugError } from "../../shared/errors/internal-debug-error.ts";
 import type { ProtocolFrame } from "../../shared/stream/types.ts";
 import { withAccountFallback } from "../../../shared/account-pool/fallback.ts";
+import type { ErrorLogContext } from "../../../shared/account-pool/fallback.ts";
 import {
   type PerformanceTelemetryContext,
   runtimeLocationFromRequest,
@@ -60,6 +61,7 @@ export const serveMessages = async (
   try {
     const payload = await c.req.json<MessagesPayload>();
     const apiKeyId = c.get("apiKeyId") as string | undefined;
+    const preferredAccountId = c.get("githubAccountId") as number | undefined;
     const wantsStream = payload.stream === true;
     downstreamAbortController = wantsStream ? new AbortController() : undefined;
     const runtimeLocation = runtimeLocationFromRequest(c.req.raw);
@@ -88,6 +90,8 @@ export const serveMessages = async (
         const intent = messagesModelResolutionIntent(ctx.payload, rawBeta);
         const modelId = await resolveModelForRequest(ctx.payload.model, intent);
         performanceFor(modelId, "messages");
+
+        const errorLogContext: ErrorLogContext = { endpoint: "messages", apiKeyId };
 
         return await withAccountFallback(
           modelId,
@@ -181,6 +185,8 @@ export const serveMessages = async (
               performance,
             );
           },
+          preferredAccountId,
+          errorLogContext,
         );
       },
     );

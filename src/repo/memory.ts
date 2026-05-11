@@ -6,6 +6,8 @@ import type {
   ApiKey,
   ApiKeyRepo,
   CacheRepo,
+  ErrorLogEntry,
+  ErrorLogRepo,
   GitHubAccount,
   GitHubRepo,
   PerformanceDimensions,
@@ -52,6 +54,22 @@ class MemoryApiKeyRepo implements ApiKeyRepo {
 
   deleteAll(): Promise<void> {
     this.store.clear();
+    return Promise.resolve();
+  }
+
+  updateGithubAccountId(id: string, githubAccountId: number): Promise<boolean> {
+    const key = this.store.get(id);
+    if (!key) return Promise.resolve(false);
+    key.githubAccountId = githubAccountId;
+    return Promise.resolve(true);
+  }
+
+  clearGithubAccountId(githubAccountId: number): Promise<void> {
+    for (const key of this.store.values()) {
+      if (key.githubAccountId === githubAccountId) {
+        key.githubAccountId = undefined;
+      }
+    }
     return Promise.resolve();
   }
 }
@@ -494,6 +512,31 @@ class MemorySearchConfigRepo implements SearchConfigRepo {
   }
 }
 
+class MemoryErrorLogRepo implements ErrorLogRepo {
+  private store: ErrorLogEntry[] = [];
+
+  record(entry: ErrorLogEntry): Promise<void> {
+    this.store.push({ ...entry });
+    return Promise.resolve();
+  }
+
+  query(opts: { start: string; end: string; limit?: number }): Promise<ErrorLogEntry[]> {
+    const limit = opts.limit ?? 200;
+    return Promise.resolve(
+      this.store
+        .filter((e) => e.timestamp >= opts.start && e.timestamp < opts.end)
+        .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
+        .slice(0, limit)
+        .map((e) => ({ ...e })),
+    );
+  }
+
+  deleteAll(): Promise<void> {
+    this.store = [];
+    return Promise.resolve();
+  }
+}
+
 export class InMemoryRepo implements Repo {
   apiKeys: ApiKeyRepo;
   github: GitHubRepo;
@@ -503,6 +546,7 @@ export class InMemoryRepo implements Repo {
   cache: CacheRepo;
   accountModelBackoffs: AccountModelBackoffRepo;
   searchConfig: SearchConfigRepo;
+  errorLog: ErrorLogRepo;
 
   constructor() {
     this.apiKeys = new MemoryApiKeyRepo();
@@ -513,5 +557,6 @@ export class InMemoryRepo implements Repo {
     this.cache = new MemoryCacheRepo();
     this.accountModelBackoffs = new MemoryAccountModelBackoffRepo();
     this.searchConfig = new MemorySearchConfigRepo();
+    this.errorLog = new MemoryErrorLogRepo();
   }
 }

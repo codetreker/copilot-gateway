@@ -28,6 +28,7 @@ import { toInternalDebugError } from "../../shared/errors/internal-debug-error.t
 import type { ProtocolFrame } from "../../shared/stream/types.ts";
 import type { SourceResponseStreamEvent } from "./events/protocol.ts";
 import { withAccountFallback } from "../../../shared/account-pool/fallback.ts";
+import type { ErrorLogContext } from "../../../shared/account-pool/fallback.ts";
 import {
   type PerformanceTelemetryContext,
   runtimeLocationFromRequest,
@@ -125,6 +126,7 @@ export const serveResponses = async (
       return unsupportedStatefulContinuationResponse(unsupportedField);
     }
     const apiKeyId = c.get("apiKeyId") as string | undefined;
+    const preferredAccountId = c.get("githubAccountId") as number | undefined;
     const wantsStream = payload.stream === true;
     downstreamAbortController = wantsStream ? new AbortController() : undefined;
     const runtimeLocation = runtimeLocationFromRequest(c.req.raw);
@@ -152,6 +154,8 @@ export const serveResponses = async (
         const intent = responsesModelResolutionIntent(ctx.payload);
         const modelId = await resolveModelForRequest(ctx.payload.model, intent);
         performanceFor(modelId, "responses");
+
+        const errorLogContext: ErrorLogContext = { endpoint: "responses", apiKeyId };
 
         return await withAccountFallback(modelId, async ({ account }) => {
           const attemptPayload = structuredClone(ctx.payload);
@@ -260,7 +264,7 @@ export const serveResponses = async (
             chatPayload.model,
             performance,
           );
-        });
+        }, preferredAccountId, errorLogContext);
       },
     );
 

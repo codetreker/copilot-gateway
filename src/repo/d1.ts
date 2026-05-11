@@ -4,6 +4,8 @@ import type {
   ApiKey,
   ApiKeyRepo,
   CacheRepo,
+  ErrorLogEntry,
+  ErrorLogRepo,
   GitHubAccount,
   GitHubRepo,
   PerformanceDimensions,
@@ -53,63 +55,54 @@ class D1ApiKeyRepo implements ApiKeyRepo {
   async list(): Promise<ApiKey[]> {
     const { results } = await this.db
       .prepare(
-        "SELECT id, name, key, created_at, last_used_at FROM api_keys ORDER BY created_at",
+        "SELECT id, name, key, created_at, last_used_at, github_account_id FROM api_keys ORDER BY created_at",
       )
-      .all<
-        {
-          id: string;
-          name: string;
-          key: string;
-          created_at: string;
-          last_used_at: string | null;
-        }
-      >();
+      .all<ApiKeyRow>();
     return results.map(toApiKey);
   }
 
   async findByRawKey(rawKey: string): Promise<ApiKey | null> {
     const row = await this.db
       .prepare(
-        "SELECT id, name, key, created_at, last_used_at FROM api_keys WHERE key = ?",
+        "SELECT id, name, key, created_at, last_used_at, github_account_id FROM api_keys WHERE key = ?",
       )
       .bind(rawKey)
-      .first<
-        {
-          id: string;
-          name: string;
-          key: string;
-          created_at: string;
-          last_used_at: string | null;
-        }
-      >();
+      .first<ApiKeyRow>();
     return row ? toApiKey(row) : null;
   }
 
   async getById(id: string): Promise<ApiKey | null> {
     const row = await this.db
       .prepare(
-        "SELECT id, name, key, created_at, last_used_at FROM api_keys WHERE id = ?",
+        "SELECT id, name, key, created_at, last_used_at, github_account_id FROM api_keys WHERE id = ?",
       )
       .bind(id)
-      .first<
-        {
-          id: string;
-          name: string;
-          key: string;
-          created_at: string;
-          last_used_at: string | null;
-        }
-      >();
+      .first<ApiKeyRow>();
     return row ? toApiKey(row) : null;
   }
 
   async save(key: ApiKey): Promise<void> {
     await this.db
       .prepare(
-        `INSERT INTO api_keys (id, name, key, created_at, last_used_at) VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT (id) DO UPDATE SET name = excluded.name, key = excluded.key, last_used_at = excluded.last_used_at`,
+        `INSERT INTO api_keys (id, name, key, created_at, last_used_at, github_account_id) VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT (id) DO UPDATE SET name = excluded.name, key = excluded.key, last_used_at = excluded.last_used_at, github_account_id = excluded.github_account_id`,
       )
-      .bind(key.id, key.name, key.key, key.createdAt, key.lastUsedAt ?? null)
+      .bind(key.id, key.name, key.key, key.createdAt, key.lastUsedAt ?? null, key.githubAccountId ?? null)
+      .run();
+  }
+
+  async updateGithubAccountId(id: string, githubAccountId: number): Promise<boolean> {
+    const result = await this.db
+      .prepare("UPDATE api_keys SET github_account_id = ? WHERE id = ?")
+      .bind(githubAccountId, id)
+      .run();
+    return (result.meta.changes as number ?? 0) > 0;
+  }
+
+  async clearGithubAccountId(githubAccountId: number): Promise<void> {
+    await this.db
+      .prepare("UPDATE api_keys SET github_account_id = NULL WHERE github_account_id = ?")
+      .bind(githubAccountId)
       .run();
   }
 
@@ -124,21 +117,23 @@ class D1ApiKeyRepo implements ApiKeyRepo {
   }
 }
 
-function toApiKey(
-  row: {
-    id: string;
-    name: string;
-    key: string;
-    created_at: string;
-    last_used_at: string | null;
-  },
-): ApiKey {
+type ApiKeyRow = {
+  id: string;
+  name: string;
+  key: string;
+  created_at: string;
+  last_used_at: string | null;
+  github_account_id: number | null;
+};
+
+function toApiKey(row: ApiKeyRow): ApiKey {
   return {
     id: row.id,
     name: row.name,
     key: row.key,
     createdAt: row.created_at,
     lastUsedAt: row.last_used_at ?? undefined,
+    githubAccountId: row.github_account_id ?? undefined,
   };
 }
 
@@ -1009,6 +1004,61 @@ class D1SearchConfigRepo implements SearchConfigRepo {
   }
 }
 
+class D1ErrorLogRepo implements ErrorLogRepo {
+  constructor(private db: D1Database) {}
+
+  async record(entry: ErrorLogEntry): Promise<void> {
+    await this.db
+      .prepare(
+        `INSERT INTO error_log (id, timestamp, endpoint, model, status, account_login, api_key_id, error_body) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(
+        entry.id,
+        entry.timestamp,
+        entry.endpoint,
+        entry.model,
+        entry.status,
+        entry.accountLogin,
+        entry.apiKeyId ?? null,
+        entry.errorBody ?? null,
+      )
+      .run();
+  }
+
+  async query(opts: { start: string; end: string; limit?: number }): Promise<ErrorLogEntry[]> {
+    const limit = opts.limit ?? 200;
+    const { results } = await this.db
+      .prepare(
+        "SELECT id, timestamp, endpoint, model, status, account_login, api_key_id, error_body FROM error_log WHERE timestamp >= ? AND timestamp < ? ORDER BY timestamp DESC LIMIT ?",
+      )
+      .bind(opts.start, opts.end, limit)
+      .all<{
+        id: string;
+        timestamp: string;
+        endpoint: string;
+        model: string;
+        status: number;
+        account_login: string;
+        api_key_id: string | null;
+        error_body: string | null;
+      }>();
+    return results.map((r) => ({
+      id: r.id,
+      timestamp: r.timestamp,
+      endpoint: r.endpoint,
+      model: r.model,
+      status: r.status,
+      accountLogin: r.account_login,
+      apiKeyId: r.api_key_id ?? undefined,
+      errorBody: r.error_body ?? undefined,
+    }));
+  }
+
+  async deleteAll(): Promise<void> {
+    await this.db.prepare("DELETE FROM error_log").run();
+  }
+}
+
 export class D1Repo implements Repo {
   apiKeys: ApiKeyRepo;
   github: GitHubRepo;
@@ -1018,6 +1068,7 @@ export class D1Repo implements Repo {
   cache: CacheRepo;
   accountModelBackoffs: AccountModelBackoffRepo;
   searchConfig: SearchConfigRepo;
+  errorLog: ErrorLogRepo;
 
   constructor(db: D1Database) {
     this.apiKeys = new D1ApiKeyRepo(db);
@@ -1028,5 +1079,6 @@ export class D1Repo implements Repo {
     this.cache = new D1CacheRepo(db);
     this.accountModelBackoffs = new D1AccountModelBackoffRepo(db);
     this.searchConfig = new D1SearchConfigRepo(db);
+    this.errorLog = new D1ErrorLogRepo(db);
   }
 }

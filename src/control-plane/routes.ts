@@ -6,6 +6,7 @@ import {
   listKeys,
   renameKey,
   rotateKey,
+  updateKey,
 } from "./api-keys/routes.ts";
 import {
   authGithub,
@@ -26,6 +27,7 @@ import {
 } from "./search-config/routes.ts";
 import { searchUsage } from "./search-usage/routes.ts";
 import { tokenUsage } from "./token-usage/routes.ts";
+import { errorLog } from "./error-log/routes.ts";
 import {
   performanceOverview,
   performanceTelemetry,
@@ -58,6 +60,7 @@ export const mountControlPlane = (app: Hono) => {
   adminApi.use("*", adminOnlyMiddleware);
   adminApi.get("/copilot-quota", copilotQuota);
   adminApi.post("/keys", createKey);
+  adminApi.put("/keys/:id", updateKey);
   adminApi.post("/keys/:id/rotate", rotateKey);
   adminApi.patch("/keys/:id", renameKey);
   adminApi.delete("/keys/:id", deleteKey);
@@ -66,5 +69,6 @@ export const mountControlPlane = (app: Hono) => {
   adminApi.post("/search-config/test", testSearchConfigRoute);
   adminApi.get("/export", exportData);
   adminApi.post("/import", importData);
+  adminApi.get("/error-log", errorLog);
   app.route("/api", adminApi);
 };

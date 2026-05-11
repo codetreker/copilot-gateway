@@ -1,4 +1,5 @@
 import { getRepo } from "../repo/index.ts";
+import type { ApiKey } from "../repo/types.ts";
 export type { ApiKey } from "../repo/types.ts";
 
 function generateKey(): string {
@@ -7,12 +8,13 @@ function generateKey(): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-export async function createApiKey(name: string) {
+export async function createApiKey(name: string, githubAccountId?: number) {
   const key = {
     id: crypto.randomUUID(),
     name,
     key: generateKey(),
     createdAt: new Date().toISOString(),
+    githubAccountId,
   };
   await getRepo().apiKeys.save(key);
   return key;
@@ -49,7 +51,19 @@ export function deleteApiKey(id: string) {
 export async function validateApiKey(rawKey: string) {
   const key = await getRepo().apiKeys.findByRawKey(rawKey);
   if (!key) return null;
-  return { id: key.id, name: key.name };
+  return { id: key.id, name: key.name, githubAccountId: key.githubAccountId };
+}
+
+export async function updateApiKeyGithubAccount(
+  id: string,
+  githubAccountId: number | null,
+): Promise<ApiKey | null> {
+  const repo = getRepo().apiKeys;
+  const existing = await repo.getById(id);
+  if (!existing) return null;
+  const updated = { ...existing, githubAccountId: githubAccountId ?? undefined };
+  await repo.save(updated);
+  return updated;
 }
 
 export async function touchApiKeyLastUsed(id: string): Promise<void> {

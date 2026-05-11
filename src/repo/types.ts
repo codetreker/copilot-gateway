@@ -7,6 +7,7 @@ export interface ApiKey {
   key: string;
   createdAt: string;
   lastUsedAt?: string;
+  githubAccountId?: number;
 }
 
 export interface GitHubAccount {
@@ -82,6 +83,25 @@ export interface ApiKeyRepo {
   getById(id: string): Promise<ApiKey | null>;
   save(key: ApiKey): Promise<void>;
   delete(id: string): Promise<boolean>;
+  deleteAll(): Promise<void>;
+  updateGithubAccountId(id: string, githubAccountId: number): Promise<boolean>;
+  clearGithubAccountId(githubAccountId: number): Promise<void>;
+}
+
+export interface ErrorLogEntry {
+  id: string;
+  timestamp: string;
+  endpoint: string;
+  model: string;
+  status: number;
+  accountLogin: string;
+  apiKeyId?: string;
+  errorBody?: string;
+}
+
+export interface ErrorLogRepo {
+  record(entry: ErrorLogEntry): Promise<void>;
+  query(opts: { start: string; end: string; limit?: number }): Promise<ErrorLogEntry[]>;
   deleteAll(): Promise<void>;
 }
 
@@ -181,4 +201,5 @@ export interface Repo {
   cache: CacheRepo;
   accountModelBackoffs: AccountModelBackoffRepo;
   searchConfig: SearchConfigRepo;
+  errorLog: ErrorLogRepo;
 }
