@@ -375,9 +375,9 @@ export function renderKeysTab() {
                         :value="k.github_account_id || ''"
                         @change="updateKeyBackend(k.id, $event.target.value ? Number($event.target.value) : null)"
                       >
-                        <option value="">Auto</option>
-                        <template x-for="acct in githubAccounts" :key="acct.user.id">
-                          <option :value="acct.user.id" x-text="acct.user.login" :selected="k.github_account_id === acct.user.id"></option>
+                        <option value="" :selected="!k.github_account_id">Default</option>
+                        <template x-for="acct in githubAccounts" :key="acct.id">
+                          <option :value="acct.id" :selected="k.github_account_id === acct.id" x-text="'@' + acct.login"></option>
                         </template>
                       </select>
                     </td>
@@ -2265,98 +2265,115 @@ export function renderModelsTab() {
 
 export function renderErrorsTab() {
   return html`
-    <div x-show="tab === 'errors' && isAdmin">
-      <div class="glass-card p-5 sm:p-6 mb-6 animate-in">
-        <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6">
-          <span class="text-xs font-medium text-gray-500 uppercase tracking-widest">Error Log</span>
-          <div class="flex items-center gap-2">
-            <select
-              class="text-xs bg-surface-800 border border-white/10 rounded px-2 py-1 text-gray-300"
-              x-model="errorLogRange"
-              @change="loadErrorLog()"
-            >
-              <option value="today">Today</option>
-              <option value="7d">Last 7 Days</option>
-              <option value="30d">Last 30 Days</option>
-            </select>
-            <button
-              @click="loadErrorLog()"
-              class="btn-primary !text-xs !py-1.5 !px-3 !rounded-lg"
-              :disabled="errorLogLoading"
-            >
-              <span x-show="!errorLogLoading">Refresh</span>
-              <span x-show="errorLogLoading" class="flex items-center gap-1.5">
-                ${spinner("h-3 w-3")} Loading…
-              </span>
-            </button>
-          </div>
-        </div>
-
-        <!-- Summary cards -->
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-          <div class="bg-surface-800 rounded-lg p-3 text-center">
-            <span class="block text-xs text-gray-500 mb-1">Total Errors</span>
-            <span class="block text-lg font-bold font-mono text-white" x-text="errorLogData.length"></span>
-          </div>
-          <template x-for="[status, count] in Object.entries(errorLogStatusCounts).sort()" :key="status">
-            <div class="bg-surface-800 rounded-lg p-3 text-center">
-              <span class="block text-xs text-gray-500 mb-1" x-text="'HTTP ' + status"></span>
-              <span class="block text-lg font-bold font-mono text-yellow-400" x-text="count"></span>
+    <template x-if="isAdmin">
+      <div
+        x-show="tab === 'errors'"
+        x-transition:enter="transition ease-out duration-200"
+        x-transition:enter-start="opacity-0"
+        x-transition:enter-end="opacity-100"
+      >
+        <div class="glass-card p-6 animate-in">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+            <div class="flex items-center gap-3">
+              <span class="text-xs font-medium text-gray-500 uppercase tracking-widest">Error Log</span>
+              <template x-if="errorLogLoading">
+                <svg class="animate-spin h-3.5 w-3.5 text-gray-500" viewBox="0 0 24 24">
+                  <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" fill="none" opacity="0.25" />
+                  <path fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" opacity="0.75" />
+                </svg>
+              </template>
             </div>
-          </template>
-        </div>
-
-        <!-- Error table -->
-        <div class="overflow-x-auto">
-          <template x-if="errorLogData.length === 0 && !errorLogLoading">
-            <p class="text-sm text-gray-500 py-4 text-center">No errors in this time range.</p>
-          </template>
-          <template x-if="errorLogLoading && errorLogData.length === 0">
-            <div class="space-y-3 py-2">
-              <div class="h-10 bg-surface-600 rounded animate-pulse"></div>
-              <div class="h-10 bg-surface-600 rounded animate-pulse"></div>
+            <div class="flex max-w-full items-center gap-1 overflow-x-auto bg-surface-800 rounded-lg p-0.5">
+              <button
+                @click="errorLogRange = 'today'; loadErrorLog()"
+                class="shrink-0 px-3 py-1.5 rounded-md text-xs font-medium transition-all"
+                :class="errorLogRange === 'today' ? 'bg-surface-600 text-white' : 'text-gray-500 hover:text-gray-300'"
+              >Last Day</button>
+              <button
+                @click="errorLogRange = '7d'; loadErrorLog()"
+                class="shrink-0 px-3 py-1.5 rounded-md text-xs font-medium transition-all"
+                :class="errorLogRange === '7d' ? 'bg-surface-600 text-white' : 'text-gray-500 hover:text-gray-300'"
+              >7 Days</button>
+              <button
+                @click="errorLogRange = '30d'; loadErrorLog()"
+                class="shrink-0 px-3 py-1.5 rounded-md text-xs font-medium transition-all"
+                :class="errorLogRange === '30d' ? 'bg-surface-600 text-white' : 'text-gray-500 hover:text-gray-300'"
+              >30 Days</button>
             </div>
-          </template>
-          <template x-if="errorLogData.length > 0">
-            <table class="w-full min-w-[700px] text-sm">
-              <thead>
-                <tr class="border-b border-white/5">
-                  <th class="text-left py-2 px-3 text-xs font-medium text-gray-500 uppercase tracking-widest">Time</th>
-                  <th class="text-left py-2 px-3 text-xs font-medium text-gray-500 uppercase tracking-widest">Endpoint</th>
-                  <th class="text-left py-2 px-3 text-xs font-medium text-gray-500 uppercase tracking-widest">Model</th>
-                  <th class="text-left py-2 px-3 text-xs font-medium text-gray-500 uppercase tracking-widest">Status</th>
-                  <th class="text-left py-2 px-3 text-xs font-medium text-gray-500 uppercase tracking-widest">Account</th>
-                  <th class="text-left py-2 px-3 text-xs font-medium text-gray-500 uppercase tracking-widest">Error</th>
-                </tr>
-              </thead>
-              <tbody>
-                <template x-for="e in errorLogData" :key="e.id">
-                  <tr class="border-b border-white/[0.03] hover:bg-white/[0.02]">
-                    <td class="py-2 px-3">
-                      <span class="text-gray-400 text-xs" :title="e.timestamp" x-text="timeAgo(e.timestamp)"></span>
-                    </td>
-                    <td class="py-2 px-3">
-                      <code class="text-xs font-mono text-gray-300" x-text="e.endpoint"></code>
-                    </td>
-                    <td class="py-2 px-3">
-                      <code class="text-xs font-mono text-gray-300" x-text="e.model"></code>
-                    </td>
-                    <td class="py-2 px-3">
-                      <span class="text-xs font-mono font-bold text-yellow-400" x-text="e.status"></span>
-                    </td>
-                    <td class="py-2 px-3">
-                      <span class="text-xs text-gray-400" x-text="e.accountLogin"></span>
-                    </td>
-                    <td class="py-2 px-3">
-                      <span class="text-xs text-gray-500 truncate max-w-[200px] block" x-text="e.errorBody || '—'" :title="e.errorBody || ''"></span>
-                    </td>
+          </div>
+
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div class="bg-surface-800 rounded-lg p-4 text-center">
+              <p class="text-xs text-gray-500 mb-1">Total Errors</p>
+              <p class="text-xl font-bold font-mono text-white" x-text="errorLogData.length"></p>
+            </div>
+            <div class="bg-surface-800 rounded-lg p-4 text-center">
+              <p class="text-xs text-gray-500 mb-1">429 Rate Limits</p>
+              <p class="text-xl font-bold font-mono text-accent-amber" x-text="errorLogData.filter(e => e.status_code === 429).length"></p>
+            </div>
+            <div class="bg-surface-800 rounded-lg p-4 text-center">
+              <p class="text-xs text-gray-500 mb-1">5xx Errors</p>
+              <p class="text-xl font-bold font-mono text-accent-rose" x-text="errorLogData.filter(e => e.status_code >= 500).length"></p>
+            </div>
+            <div class="bg-surface-800 rounded-lg p-4 text-center">
+              <p class="text-xs text-gray-500 mb-1">Fallback Events</p>
+              <p class="text-xl font-bold font-mono text-accent-cyan" x-text="errorLogData.filter(e => e.was_fallback).length"></p>
+            </div>
+          </div>
+
+          <div class="overflow-x-auto">
+            <template x-if="errorLogData.length === 0 && !errorLogLoading">
+              <p class="text-sm text-gray-500 py-4 text-center">No errors in this time range.</p>
+            </template>
+            <template x-if="errorLogData.length > 0">
+              <table class="w-full min-w-[700px] text-sm">
+                <thead>
+                  <tr class="border-b border-white/5">
+                    <th class="text-left py-2 px-3 text-xs font-medium text-gray-500 uppercase tracking-widest">Time</th>
+                    <th class="text-left py-2 px-3 text-xs font-medium text-gray-500 uppercase tracking-widest">Account</th>
+                    <th class="text-left py-2 px-3 text-xs font-medium text-gray-500 uppercase tracking-widest">Model</th>
+                    <th class="text-left py-2 px-3 text-xs font-medium text-gray-500 uppercase tracking-widest">Endpoint</th>
+                    <th class="text-left py-2 px-3 text-xs font-medium text-gray-500 uppercase tracking-widest">Status</th>
+                    <th class="text-left py-2 px-3 text-xs font-medium text-gray-500 uppercase tracking-widest">Fallback</th>
                   </tr>
-                </template>
-              </tbody>
-            </table>
-          </template>
+                </thead>
+                <tbody>
+                  <template x-for="e in errorLogData" :key="e.id">
+                    <tr class="border-b border-white/[0.03] hover:bg-white/[0.02]">
+                      <td class="py-2.5 px-3">
+                        <span class="text-gray-400 text-xs font-mono" x-text="e.timestamp"></span>
+                      </td>
+                      <td class="py-2.5 px-3">
+                        <span class="text-gray-300 text-xs" x-text="e.account_id ?? '—'"></span>
+                      </td>
+                      <td class="py-2.5 px-3">
+                        <span class="text-gray-300 text-xs font-mono truncate max-w-[200px] inline-block" x-text="e.model ?? '—'"></span>
+                      </td>
+                      <td class="py-2.5 px-3">
+                        <span class="text-gray-400 text-xs font-mono" x-text="e.endpoint"></span>
+                      </td>
+                      <td class="py-2.5 px-3">
+                        <span
+                          class="text-xs font-bold px-2 py-0.5 rounded-full"
+                          :class="e.status_code === 429 ? 'bg-accent-amber/10 text-accent-amber' : e.status_code >= 500 ? 'bg-accent-rose/10 text-accent-rose' : 'bg-surface-600 text-gray-300'"
+                          x-text="e.status_code"
+                        ></span>
+                      </td>
+                      <td class="py-2.5 px-3">
+                        <span
+                          x-show="e.was_fallback"
+                          class="text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full bg-accent-cyan/10 text-accent-cyan"
+                        >Yes</span>
+                        <span x-show="!e.was_fallback" class="text-gray-600 text-xs">—</span>
+                      </td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </template>
+          </div>
         </div>
       </div>
-    </div>
+    </template>
   `;
 }
